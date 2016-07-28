@@ -19,6 +19,17 @@ def ignore(path):
 def usage():
 	print "backup_disc_evaluator (-m JSON_DEST | -a JSON_DEST) JSON_BASE1 [ JSON_BASE2 [ ... ] ]"
 
+
+def md5_hash(path, json):
+	return json['md5sum']
+
+def name_size_time_hash(path, json):
+	path=os.path.split(path)
+	filename=path[len(path)-1]
+	return "%s_%s_%s"%(filename,json["size"],json["mtime"])
+
+my_hash=None
+
 def load_to_hash(filename, base_by_hash):
 	print "loading downstream %s"%filename
 	with open(filename) as f:
@@ -26,13 +37,12 @@ def load_to_hash(filename, base_by_hash):
 
 	for p, d in by_path.items():
 		if ignore(p): continue
-		if d['md5sum'] in base_by_hash:
-
-			print "Duplicate file: %s and %s"%(p, base_by_hash[d['md5sum']]['path'])
+		if my_hash(p, d) in base_by_hash:
+			print "Duplicate file: %s and %s"%(p, base_by_hash[my_hash(p, d)]['path'])
 
 			continue
 			
-		base_by_hash[d['md5sum']]={
+		base_by_hash[my_hash(p, d)]={
 			'path':p,
 			'mtime':d["mtime"],
 			'size':d["size"],
@@ -77,8 +87,8 @@ class UFile:
 	def show(self, indent=0):
 		pass
 
-	def makestate(self, dsbh):
-		mymd5=self.json_values['md5sum']
+	def makestate(self, dsbh, filename):
+		mymd5=my_hash(filename, self.json_values)
 		if mymd5 in dsbh:
 			self.state=Full
 			self.isource="%s:%s"%(dsbh[mymd5]["source"], dsbh[mymd5]["path"])
@@ -108,7 +118,7 @@ class UDirectory:
 	def show(self, indent=0):
 		dtabs='|   '*(indent-1)+("+---"if indent>0 else "")
 		ftabs='|   '*indent	
-		for fn in self.files.keys():
+		for fn in sorted(self.files.keys()):
 			node=self.files[fn]
 			tabs=dtabs if isinstance(node, UDirectory) else ftabs
 			print "%s%s %s %s"%(tabs, node.short(), fn, node.long())
@@ -119,14 +129,14 @@ class UDirectory:
 		self.message=message
 
 
-	def makestate(self, dsbh):
+	def makestate(self, dsbh, filename):
 		if self.state:
 			raise Exception("Attempt to run makestate twice")
 
 		partials, missings, fulls=0,0,0
 		self.size=0
-		for f in self.files.values():
-			childstate=f.makestate(dsbh)
+		for fn, f in self.files.items():
+			childstate=f.makestate(dsbh, fn)
 			if childstate==Partial:
 				partials+=1
 			elif childstate==Missing:
@@ -168,17 +178,32 @@ def main():
 		usage()
 		sys.exit(1)
 
-	optlist, json_downstream_files=getopt.getopt(sys.argv[1:], "u:")
+	optlist, json_downstream_files=getopt.getopt(sys.argv[1:], "smu:")
+
+	hashing_method=None
+	MetaDataBased,SumBased=1,2
 
 	upstream_file=None
 	for (opt, val) in optlist:
-		if opt in "-upstream":
+		if opt =="-u":
 			if upstream_file:
-				raise Exception("Too many -l")
+				raise Exception("Too many -u")
 			else:
 				upstream_file=val
+		elif opt=="-s":
+			if hashing_method: raise Exception("Too many hashing methods")
+			hashing_method=SumBased
+		elif opt=="-m":
+			if hashing_method: raise Exception("Too many hashing methods")
+			hashing_method=MetaDataBased
 		else:
 			raise Exception("Unknown option")
+
+	if not hashing_method:
+		raise Exception("Please specify -s (sum hashing) or -m (meta data hashing)")
+
+	global my_hash
+	my_hash=md5_hash if hashing_method==SumBased else name_size_time_hash
 
 	downstream_by_hash={}
 
@@ -201,7 +226,7 @@ def main():
 		directory=get_dir(dname, rootdir)
 		directory.files[fname]=UFile(directory, upstream[path])
 
-	globalstate= rootdir.makestate(downstream_by_hash)
+	globalstate= rootdir.makestate(downstream_by_hash, "")
 
 	rootdir.show()
 
