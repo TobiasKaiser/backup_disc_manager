@@ -6,6 +6,9 @@ import stat
 import hashlib
 import json
 import getopt
+import sys
+reload(sys)
+sys.setdefaultencoding('utf-8')
 
 chunk_size=1024*1024*4
 
@@ -43,8 +46,8 @@ def create_index_recursive(subdir, root, json_dest, base_dict, counters, verbose
 			continue
 
 		if verbose:
-			print "[F] path=%s size=%s mtime=%s md5sum=%s "%\
-				(rel_filename, cur_s.st_size, cur_s.st_mtime, md5sum)
+			print "[F] path=%s size=%s mtime=%s"%\
+				(rel_filename, cur_s.st_size, cur_s.st_mtime)
 		
 		if rel_filename in json_dest:
 			print "[E] Error: Trying to doulbe add path %s, skipping second occurence."%rel_filename
@@ -52,6 +55,8 @@ def create_index_recursive(subdir, root, json_dest, base_dict, counters, verbose
 			continue
 
 		md5sum=None
+
+		rel_filename=unicode(rel_filename)
 		if rel_filename in base_dict:
 			previous=base_dict[rel_filename]
 			if previous["size"]==cur_s.st_size and previous["mtime"]==cur_s.st_mtime:
@@ -63,7 +68,7 @@ def create_index_recursive(subdir, root, json_dest, base_dict, counters, verbose
 				counters["modified"]+=1
 		else:
 			if verbose:
-				print "[U] New file %s found."%rel_filename
+				print "[N] New file %s found."%rel_filename
 			counters["new"]+=1
 		if not md5sum:
 			md5sum=md5sum_of_file(cur_file)
@@ -115,7 +120,7 @@ def main():
 			base_dict=json.load(f)
 	else:
 		base_dict={}
-
+		
 	out_dict={}
 	for folder in folders_to_idx:
 		create_index_recursive("", folder, out_dict, base_dict, counters, verbose)
