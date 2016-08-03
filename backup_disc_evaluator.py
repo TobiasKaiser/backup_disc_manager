@@ -16,17 +16,13 @@ def ignore(path):
 		return True
 	return False
 
-def usage():
-	print "backup_disc_evaluator (-m JSON_DEST | -a JSON_DEST) JSON_BASE1 [ JSON_BASE2 [ ... ] ]"
-
-
 def md5_hash(path, json):
 	return json['md5sum']
 
 def name_size_time_hash(path, json):
 	path=os.path.split(path)
 	filename=path[len(path)-1]
-	return "%s_%s_%s"%(filename,json["size"],json["mtime"])
+	return "%s_%s_%s"%(filename,json["size"],int(json["mtime"]))
 
 my_hash=None
 
@@ -84,7 +80,7 @@ class UFile:
 		else:
 			return "%s"%hsize(self.size)
 	
-	def show(self, indent=0):
+	def show(self, indent=0, onlymissing=False):
 		pass
 
 	def makestate(self, dsbh, filename):
@@ -105,6 +101,8 @@ class UDirectory:
 		self.message=None
 		self.source=set()
 		self.size=None
+		self.collapsed=False
+
 
 	def short(self):
 		return "[%s]"%{Missing:"M",Partial:"P",Full:"F"}[self.state]
@@ -115,18 +113,20 @@ class UDirectory:
 		else:
 			return hsize(self.size)
 
-	def show(self, indent=0):
+	def show(self, indent=0, onlymissing=False):
 		dtabs='|   '*(indent-1)+("+---"if indent>0 else "")
 		ftabs='|   '*indent	
 		for fn in sorted(self.files.keys()):
 			node=self.files[fn]
+			if (not node.short() in ("[M]", "[P]")) and onlymissing: continue
 			tabs=dtabs if isinstance(node, UDirectory) else ftabs
 			print "%s%s %s %s"%(tabs, node.short(), fn, node.long())
-			node.show(indent+1)
+			node.show(indent+1, onlymissing)
 
 	def purge(self, message):
 		self.files={}
 		self.message=message
+		self.collapsed=True
 
 
 	def makestate(self, dsbh, filename):
@@ -172,6 +172,10 @@ def get_dir(d, rootdir):
 		cur=cur.files[part]
 	
 	return cur
+
+def usage():
+	print "backup_disc_evaluator -u JSON_UPSTREAM [-s | -m] JSON_DOWNSTREAM1 [ JSON_DOWNSTREAM2 [ ... ] ]"
+
 
 def main():
 	if len(sys.argv)<=1:
@@ -228,14 +232,18 @@ def main():
 
 	globalstate= rootdir.makestate(downstream_by_hash, "")
 
+	print
 	rootdir.show()
-
+	print
+	
 	if globalstate==Full:
 		print "Full backup found."
 	elif globalstate==Partial:
 		print "Partial backup found."
 	elif globalstate==Missing:
 		print "No backups found."
+	print
+	rootdir.show(onlymissing=True)
 
 if __name__=="__main__":
 	main()
